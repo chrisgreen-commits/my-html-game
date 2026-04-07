@@ -918,6 +918,9 @@ function initBoss() {
   };
   G.aliens = [];
   G.pickups = [];
+  // Give player a card to start with on boss level
+  G.cardActive = CARD_KEYS[Math.floor(Math.random()*CARD_KEYS.length)];
+  G.cardCooldown = 0;
 }
 
 // ─── CUTSCENE ENGINE ──────────────────────────────────────
@@ -1294,21 +1297,58 @@ function updateBoss(dt) {
   if(inputPressed.switchStack&&st.switchCooldown<=0) {
     const o=st.order; st.order=[o[1],o[2],o[0]]; st.switchCooldown=300;
     addParticle(st.x, st.y-40, '⬆', 800);
+    updateHUD();
   }
 
-  // Attack boss
+  // Attack — fire character powers at boss (screen coords, no worldX needed)
   if(inputPressed.attack && G.attackTimer<=0) {
     G.attackTimer = 300;
-    if(Math.abs(st.x-b.x)<60 && st.y>b.y-80 && st.y<b.y+10) {
+    const topChar = st.order[0];
+    if(topChar==='jimmy') {
+      G.projectiles.push({ x:st.x+(st.facingRight?12:-12), y:st.y-60,
+        vx:st.facingRight?5.75:-5.75, vy:-1, type:'balloon', life:2000 });
+    } else if(topChar==='sam') {
+      G.projectiles.push({ x:st.x+(st.facingRight?16:-16), y:st.y-60,
+        vx:st.facingRight?6.9:-6.9, vy:0, type:'hat', life:800 });
+    } else if(topChar==='tommy') {
+      // Adorable face stuns the boss briefly
+      addParticle(st.x, st.y-50, '🌟', 600);
+      if(b.stunTimer<=0) { b.stunTimer=1500; addParticle(b.x,b.y-50,'😵',800); }
+    }
+    // Melee fallback — always works in close range regardless of character
+    if(Math.abs(st.x-b.x)<50 && st.y>b.y-80 && st.y<b.y+10) {
       b.hp--; G.bossHits++;
-      b.stunTimer = 400;
-      addParticle(b.x, b.y-40, '💥', 500);
+      b.stunTimer = Math.max(b.stunTimer, 300);
+      addParticle(b.x, b.y-40, '💥', 400);
       if(b.hp<=0) levelComplete();
     }
   }
+
+  // Player projectiles hit boss
+  G.projectiles = G.projectiles.filter(p=>{
+    p.x+=p.vx; p.y+=p.vy; p.vy+=0.1; p.life-=dt;
+    if(p.x<0||p.x>CW||p.y>CH||p.life<=0) return false;
+    if(b.stunTimer<=0 || p.type==='balloon' || p.type==='hat' || p.type==='potato') {
+      if(Math.abs(p.x-b.x)<b.w/2 && p.y>b.y-b.h && p.y<b.y+4) {
+        b.hp--; G.bossHits++;
+        b.stunTimer = Math.max(b.stunTimer, 300);
+        addParticle(b.x, b.y-40, '💥', 500);
+        if(b.hp<=0) levelComplete();
+        return false;
+      }
+    }
+    return true;
+  });
+
+  // Card use
+  if(inputPressed.card && G.cardActive && G.cardCooldown<=0) {
+    useBossCard();
+    G.cardCooldown = 5000;
+  }
+
   // Stomp boss
   if(st.vy>1&&st.y>=b.y-b.h&&st.y<=b.y&&Math.abs(st.x-b.x)<28) {
-    b.hp-=2; G.bossHits+=2; b.stunTimer=400; st.vy=-6;
+    b.hp-=2; G.bossHits+=2; b.stunTimer=500; st.vy=-7;
     addParticle(b.x,b.y-40,'💥',500);
     if(b.hp<=0) levelComplete();
   }
@@ -1349,7 +1389,37 @@ function useCard() {
   }
 }
 
-// ─── PARTICLES ────────────────────────────────────────────
+// ─── CARD USE (BOSS) ──────────────────────────────────────
+// Boss level is screen-space so uses st.x not worldX
+function useBossCard() {
+  const card = G.cardActive;
+  if(!card) return;
+  const st = G.stack;
+  const b = G.boss;
+  if(card==='megafrog') {
+    G.megaJump=true; G.cardTimer=6000;
+    addParticle(st.x,st.y-40,'🐸',1000);
+  } else if(card==='bowtie') {
+    G.shieldHits=0; G.cardTimer=8000;
+    addParticle(st.x,st.y-40,'🎀',1000);
+  } else if(card==='sloopgun') {
+    for(let i=0;i<4;i++) setTimeout(()=>{
+      if(!G||!G.stack) return;
+      G.projectiles.push({x:G.stack.x+(G.stack.facingRight?12:-12),y:G.stack.y-55,
+        vx:G.stack.facingRight?6:-6,vy:-0.5+i*0.3,type:'potato',life:1500});
+    },i*120);
+    addParticle(st.x,st.y-40,'🥔',1000);
+  } else if(card==='banana') {
+    G.projectiles.push({x:st.x+(st.facingRight?12:-12),y:st.y-55,
+      vx:st.facingRight?4:-4,vy:-2,type:'banana',life:2000});
+    addParticle(st.x,st.y-40,'🍌',800);
+  } else if(card==='mustard') {
+    // Stun the boss
+    if(b) { b.stunTimer=5000; addParticle(b.x,b.y-50,'💙',1000); }
+    addParticle(st.x,st.y-40,'💙',1000);
+  }
+  G.cardActive = null;
+}
 function addParticle(x,y,emoji,life) {
   G.particles.push({x,y,emoji,life,maxLife:life,vy:-0.8});
 }
